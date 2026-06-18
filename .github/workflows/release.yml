@@ -1,0 +1,115 @@
+# Crypax 跨平台发布工作流。
+#
+# 触发方式：推送形如 `v*` 的 tag；或在 Actions 页面手动触发
+#           （手动触发只构建、不发布，用于验证打包流程）。
+#
+# 用法：
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# 产物（上传到 GitHub Release）：
+#   crypax-linux-amd64        x86_64，完全静态链接(musl)，任意 glibc 发行版 / Alpine 通用
+#   crypax-linux-arm64        aarch64(gnu)，树莓派4/5、ARM 服务器
+#   crypax-windows-amd64.exe  x86_64 Windows
+#   crypax-darwin-amd64       Intel Mac
+#   crypax-darwin-arm64       Apple Silicon Mac
+#   SHA256SUMS.txt            所有二进制的 sha256 校验和
+#
+# 说明：rusqlite 用了 bundled 特性（SQLite 静态编译进二进制），目标机无需装任何库。
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# softprops/action-gh-release 创建 Release 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, artifact: crypax-linux-amd64 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest, artifact: crypax-linux-arm64 }
+          - { target: x86_64-pc-windows-msvc,   os: windows-latest, artifact: crypax-windows-amd64 }
+          - { target: x86_64-apple-darwin,      os: macos-latest,   artifact: crypax-darwin-amd64 }
+          - { target: aarch64-apple-darwin,     os: macos-latest,   artifact: crypax-darwin-arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux 交叉编译需要对应的 C 工具链（编译 rusqlite bundled 的 SQLite C 源）
+      - name: Install Linux cross toolchain
+        if: runner.os == 'Linux'
+        run: |
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl) sudo apt-get update && sudo apt-get install -y musl-tools ;;
+            aarch64-unknown-linux-gnu) sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu ;;
+          esac
+
+      # 告诉 cargo / cc crate 用交叉编译器做链接和 C 编译
+      - name: Configure cross-compile env
+        if: runner.os == 'Linux'
+        run: |
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl)
+              echo "CC_X86_64_UNKNOWN_LINUX_MUSL=musl-gcc" >> "$GITHUB_ENV"
+              echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc" >> "$GITHUB_ENV" ;;
+            aarch64-unknown-linux-gnu)
+              echo "CC_AARCH64_UNKNOWN_LINUX_GNU=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+              echo "CXX_AARCH64_UNKNOWN_LINUX_GNU=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
+              echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p staging
+          ext=""
+          [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          cp "target/${{ matrix.target }}/release/crypax${ext}" "staging/${{ matrix.artifact }}${ext}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: staging/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    # 仅 tag 触发时发布；手动触发(workflow_dispatch)只验证构建，跳过发布
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * | tee SHA256SUMS.txt
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
