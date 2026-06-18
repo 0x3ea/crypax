@@ -138,16 +138,25 @@ pub fn corrupt_one_archive_file(archive_dir: &Path) {
 }
 
 pub fn remove_n_archive_files(archive_dir: &Path, n: usize) {
+    let header = format::read_header(&archive_dir.join("crypax.archive")).expect("read header");
+    let salt = KeySalt::try_from_vec(&header.salt).expect("parse salt");
+    let params = default_kdf_params();
+    let key = derive_archive_key("pw", &salt, &params).expect("derive key");
+    let raw = &header.encrypted_manifest;
+    let nonce: [u8; 24] = raw[..24].try_into().unwrap();
+    let ciphertext = raw[24..].to_vec();
+    let blob = EncryptedBlob { nonce, ciphertext };
+    let manifest_bytes = decrypt_blob(&key, &blob, b"").expect("decrypt manifest");
+    let manifest = decode_plain_manifest(&manifest_bytes).expect("decode manifest");
+
+    let data_count = manifest.erasure.data_shards as usize;
     let mut removed = 0;
-    for entry in fs::read_dir(archive_dir).expect("read archive dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "bin") {
-            fs::remove_file(&path).expect("remove chunk file");
-            removed += 1;
-            if removed >= n {
-                return;
-            }
+    for chunk in &manifest.chunks[..data_count] {
+        let path = archive_dir.join(&chunk.file_name);
+        fs::remove_file(&path).expect("remove data shard file");
+        removed += 1;
+        if removed >= n {
+            return;
         }
     }
 }
