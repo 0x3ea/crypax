@@ -31,3 +31,21 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Meta { command } => meta::run(command),
     }
 }
+
+pub fn format_timestamp(epoch: i64) -> String {
+    let secs = epoch;
+    let days = secs / 86400;
+    let y = 1970 + (days * 4 + 2) / 1461;
+    let doy = days - (365 * (y - 1970) + (y - 1970 + 1) / 4);
+    let month_table = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut m = 0;
+    let mut d = doy;
+    for &ml in &month_table {
+        if d < ml {
+            break;
+        }
+        d -= ml;
+        m += 1;
+    }
+    format!("{:04}-{:02}-{:02}", y, m + 1, d + 1)
+}

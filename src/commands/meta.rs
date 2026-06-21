@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use crate::commands::format_timestamp;
 use crate::index::db::{IndexDb, default_index_dir};
 
 use crate::{cli::MetaCommand, error::Result};
@@ -60,7 +61,7 @@ fn run_show(target: &str) -> Result<()> {
     println!("Archive ID:   {}", record.archive_id);
     println!("Fingerprint:  {}", record.fingerprint);
     println!("Path:         {}", record.archive_path.display());
-    println!("Created:      {}", record.created_at);
+    println!("Created:      {}", format_timestamp(record.created_at));
     if let Some(title) = &record.metadata.title {
         println!("Title:        {}", title);
     }
