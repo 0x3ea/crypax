@@ -121,34 +121,42 @@ pub fn run_crypax_with_stdin(args: &[&str], stdin_data: &str) -> CommandOutput {
     }
 }
 
-pub fn corrupt_one_archive_file(archive_dir: &Path) {
-    for entry in fs::read_dir(archive_dir).expect("read archive dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "bin") {
-            let mut data = fs::read(&path).expect("read chunk");
-            if let Some(byte) = data.last_mut() {
-                *byte ^= 0xFF;
-            }
-            fs::write(&path, &data).expect("write corrupted chunk");
-            return;
-        }
-    }
-    panic!("no .bin file found in archive");
-}
-
-pub fn remove_n_archive_files(archive_dir: &Path, n: usize) {
+// 解密 archive 的 manifest，供需要按 shard 角色（data/parity）定位文件的测试辅助使用。
+// 直线 decrypt 路径只读取 data shard（manifest.chunks[..data_shards]），从不触碰 parity
+// shard，因此"破坏某个 shard 后期望 decrypt 报错"的测试必须确定性地命中 data shard，
+// 否则会受 fs::read_dir 顺序影响（不同平台/文件系统顺序不同）而偶发失败。
+fn load_plain_manifest(archive_dir: &Path, password: &str) -> PlainManifest {
     let header = format::read_header(&archive_dir.join("crypax.archive")).expect("read header");
     let salt = KeySalt::try_from_vec(&header.salt).expect("parse salt");
     let params = default_kdf_params();
-    let key = derive_archive_key("pw", &salt, &params).expect("derive key");
+    let key = derive_archive_key(password, &salt, &params).expect("derive key");
     let raw = &header.encrypted_manifest;
     let nonce: [u8; 24] = raw[..24].try_into().unwrap();
     let ciphertext = raw[24..].to_vec();
     let blob = EncryptedBlob { nonce, ciphertext };
     let manifest_bytes = decrypt_blob(&key, &blob, b"").expect("decrypt manifest");
-    let manifest = decode_plain_manifest(&manifest_bytes).expect("decode manifest");
+    decode_plain_manifest(&manifest_bytes).expect("decode manifest")
+}
 
+pub fn corrupt_one_archive_file(archive_dir: &Path) {
+    // 确定性地破坏第一个 data shard（decrypt 实际会读取并校验的 shard）。
+    // 不能按 fs::read_dir 顺序挑 .bin：那样可能命中 parity shard，而 parity shard 在
+    // 直线 decrypt 中根本不被读取，破坏它不会触发认证失败，测试会非确定性失败。
+    let manifest = load_plain_manifest(archive_dir, "pw");
+    let target = manifest
+        .chunks
+        .first()
+        .expect("manifest must have at least one chunk");
+    let path = archive_dir.join(&target.file_name);
+    let mut data = fs::read(&path).expect("read chunk");
+    if let Some(byte) = data.last_mut() {
+        *byte ^= 0xFF;
+    }
+    fs::write(&path, &data).expect("write corrupted chunk");
+}
+
+pub fn remove_n_archive_files(archive_dir: &Path, n: usize) {
+    let manifest = load_plain_manifest(archive_dir, "pw");
     let data_count = manifest.erasure.data_shards as usize;
     let mut removed = 0;
     for chunk in &manifest.chunks[..data_count] {
