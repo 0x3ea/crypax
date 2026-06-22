@@ -225,6 +225,12 @@ fn write_encrypted_archive(
     let archive_path = output_dir.join("crypax.archive");
     write_header(&archive_path, &header)?;
 
+    let archive_path = output_dir.join("crypax.archive.bak.1");
+    write_header(&archive_path, &header)?;
+
+    let archive_path = output_dir.join("crypax.archive.bak.2");
+    write_header(&archive_path, &header)?;
+
     for (blob, file_name) in encrypted_shards.iter().zip(chunk_file_names.iter()) {
         let chunk_path = output_dir.join(file_name);
         let mut chunk_bytes = Vec::with_capacity(blob.nonce.len() + blob.ciphertext.len());
