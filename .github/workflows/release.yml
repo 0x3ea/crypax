@@ -43,7 +43,7 @@ jobs:
           - { target: aarch64-apple-darwin,     os: macos-latest,   artifact: crypax-darwin-arm64 }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -83,7 +83,7 @@ jobs:
           [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
           cp "target/${{ matrix.target }}/release/crypax${ext}" "staging/${{ matrix.artifact }}${ext}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: staging/*
@@ -98,7 +98,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
