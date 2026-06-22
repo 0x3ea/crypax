@@ -39,17 +39,11 @@ pub fn open_archive_dir(archive_dir: &Path) -> Result<ArchiveLayout> {
         return Err(error::invalid_input("archive path is not a directory"));
     }
 
-    let header_path = archive_dir.join(ARCHIVE_HEADER_FILE_NAME);
-
-    if !header_path.exists() {
-        return Err(error::corrupt_archive("missing archive header"));
-    }
-
-    format::read_header(&header_path)?;
+    format::read_header_with_fallback(archive_dir)?;
 
     Ok(ArchiveLayout {
         archive_dir: archive_dir.to_path_buf(),
-        header_path,
+        header_path: archive_dir.join(ARCHIVE_HEADER_FILE_NAME),
     })
 }
 

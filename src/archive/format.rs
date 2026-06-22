@@ -4,13 +4,12 @@ use std::{
     path::Path,
 };
 
-use anyhow::Ok;
-
 use crate::error::{self, Result};
 
 pub const ARCHIVE_MAGIC: &[u8] = b"CRYPAX\0";
 pub const ARCHIVE_FORMAT_VERSION: u16 = 1;
 
+#[derive(Debug)]
 pub struct ArchiveHeader {
     pub version: u16,
     pub salt: Vec<u8>,
@@ -52,7 +51,24 @@ pub fn write_header(path: &Path, header: &ArchiveHeader) -> Result<()> {
     Ok(())
 }
 
-pub fn read_header(path: &Path) -> Result<ArchiveHeader> {
+pub fn read_header_with_fallback(path: &Path) -> Result<ArchiveHeader> {
+    let candidates = [
+        "crypax.archive",
+        "crypax.archive.bak.1",
+        "crypax.archive.bak.2",
+    ];
+
+    for name in candidates {
+        let archive_path = path.join(name);
+        if let Ok(header) = read_header(&archive_path) {
+            return Ok(header);
+        }
+    }
+
+    Err(error::corrupt_archive("no archive found"))
+}
+
+fn read_header(path: &Path) -> Result<ArchiveHeader> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut magic = vec![0_u8; ARCHIVE_MAGIC.len()];
@@ -91,4 +107,30 @@ fn read_u32_le(reader: &mut impl Read) -> Result<u32> {
     let mut bytes = [0_u8; 4];
     reader.read_exact(&mut bytes)?;
     Ok(u32::from_le_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn rejects_unknown_archive_version() {
+        let dir =
+            std::env::temp_dir().join(format!("crypax-format-version-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let header_path = dir.join("crypax.archive");
+
+        let mut file = fs::File::create(&header_path).unwrap();
+        file.write_all(ARCHIVE_MAGIC).unwrap();
+        file.write_all(&999u16.to_le_bytes()).unwrap();
+        file.write_all(&0u16.to_le_bytes()).unwrap();
+        file.write_all(&0u32.to_le_bytes()).unwrap();
+        drop(file);
+
+        let err = read_header(&header_path).unwrap_err();
+        assert_eq!(err.to_string(), "unsupported archive format version: 999");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -126,7 +126,7 @@ pub fn run_crypax_with_stdin(args: &[&str], stdin_data: &str) -> CommandOutput {
 // shard，因此"破坏某个 shard 后期望 decrypt 报错"的测试必须确定性地命中 data shard，
 // 否则会受 fs::read_dir 顺序影响（不同平台/文件系统顺序不同）而偶发失败。
 fn load_plain_manifest(archive_dir: &Path, password: &str) -> PlainManifest {
-    let header = format::read_header(&archive_dir.join("crypax.archive")).expect("read header");
+    let header = format::read_header_with_fallback(archive_dir).expect("read header");
     let salt = KeySalt::try_from_vec(&header.salt).expect("parse salt");
     let params = default_kdf_params();
     let key = derive_archive_key(password, &salt, &params).expect("derive key");
@@ -320,7 +320,7 @@ pub fn decrypt_archive(
     output_dir: &Path,
     password: &str,
 ) -> crypax::error::Result<()> {
-    let header = format::read_header(&archive_dir.join("crypax.archive"))?;
+    let header = format::read_header_with_fallback(archive_dir)?;
 
     let salt = KeySalt::try_from_vec(&header.salt)?;
     let params = default_kdf_params();

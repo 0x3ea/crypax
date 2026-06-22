@@ -1,11 +1,9 @@
 use std::path::Path;
 
+use crate::archive::format::read_header_with_fallback;
 use crate::error::Result;
 use crate::{
-    archive::{
-        format::read_header,
-        manifest::{PlainManifest, decrypt_manifest},
-    },
+    archive::manifest::{PlainManifest, decrypt_manifest},
     chunks::split::{DataShard, join_data_shards},
     crypto::{
         aead::{EncryptedBlob, decrypt_chunk},
@@ -18,8 +16,7 @@ use crate::{
 pub fn run(archive_dir: &Path, output_dir: &Path) -> Result<()> {
     let password = rpassword::prompt_password("Enter password: ")?;
 
-    let header_path = archive_dir.join("crypax.archive");
-    let archive = read_header(&header_path)?;
+    let archive = read_header_with_fallback(archive_dir)?;
 
     let archive_key = unlock_archive_key(&password, &archive)?;
 

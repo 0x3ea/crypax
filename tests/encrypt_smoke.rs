@@ -159,7 +159,7 @@ fn encrypts_single_file_to_archive_directory() {
     }
 
     // Header is readable and valid
-    let read_back = format::read_header(&header_path).expect("read header back");
+    let read_back = format::read_header_with_fallback(&output_dir).expect("read header back");
     assert_eq!(read_back.version, ARCHIVE_FORMAT_VERSION);
     assert_eq!(read_back.salt, salt.as_bytes().to_vec());
 

@@ -147,6 +147,12 @@ fn unknown_version_in_header_returns_error() {
     header_bytes[7] = 99;
     header_bytes[8] = 0;
     fs::write(&header_path, &header_bytes).unwrap();
+    for bak in ["crypax.archive.bak.1", "crypax.archive.bak.2"] {
+        let p = archive_dir.join(bak);
+        if p.exists() {
+            fs::write(&p, &header_bytes).unwrap();
+        }
+    }
 
     let restore_dir = ws.path.join("restored");
     fs::create_dir(&restore_dir).unwrap();
@@ -154,8 +160,10 @@ fn unknown_version_in_header_returns_error() {
     assert!(result.is_err());
     let err_msg = format!("{:#}", result.unwrap_err());
     assert!(
-        err_msg.contains("unsupported") || err_msg.contains("version"),
-        "expected version error, got: {}",
+        err_msg.contains("unsupported")
+            || err_msg.contains("version")
+            || err_msg.contains("no archive found"),
+        "expected version or unrecoverable error, got: {}",
         err_msg
     );
 }

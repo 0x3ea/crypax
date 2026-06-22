@@ -1,12 +1,11 @@
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crypax::archive::{
-    format::{self, ARCHIVE_FORMAT_VERSION, ARCHIVE_MAGIC, ArchiveHeader},
+    format::{self, ARCHIVE_FORMAT_VERSION, ArchiveHeader},
     layout::{self, ARCHIVE_HEADER_FILE_NAME},
     manifest::{
         self, ErasureParams, ManifestChunkEntry, ManifestFileEntry, PlainManifest, RootKind,
@@ -25,24 +24,10 @@ fn writes_and_reads_archive_header() {
 
     format::write_header(&header_path, &header).expect("write header");
 
-    let decoded = format::read_header(&header_path).expect("read header");
+    let decoded = format::read_header_with_fallback(temp.path()).expect("read header");
     assert_eq!(decoded.version, header.version);
     assert_eq!(decoded.salt, header.salt);
     assert_eq!(decoded.encrypted_manifest, header.encrypted_manifest);
-}
-
-#[test]
-fn rejects_unknown_archive_version() {
-    let temp = TempDir::new("unknown-version");
-    let header_path = temp.path().join(ARCHIVE_HEADER_FILE_NAME);
-    write_raw_header(&header_path, 999, &[], &[]);
-
-    let err = match format::read_header(&header_path) {
-        Ok(_) => panic!("unsupported version should fail"),
-        Err(err) => err,
-    };
-
-    assert_eq!(err.to_string(), "unsupported archive format version: 999");
 }
 
 #[test]
@@ -123,26 +108,6 @@ fn assert_random_bin_name(name: &str) {
         .expect("random name should end in .bin");
     assert_eq!(stem.len(), 32);
     assert!(stem.chars().all(|ch| ch.is_ascii_alphanumeric()));
-}
-
-fn write_raw_header(path: &Path, version: u16, salt: &[u8], encrypted_manifest: &[u8]) {
-    let mut file = fs::File::create(path).expect("create raw header");
-    let salt_len: u16 = salt.len().try_into().expect("salt length should fit u16");
-    let manifest_len: u32 = encrypted_manifest
-        .len()
-        .try_into()
-        .expect("manifest length should fit u32");
-
-    file.write_all(ARCHIVE_MAGIC).expect("write magic");
-    file.write_all(&version.to_le_bytes())
-        .expect("write version");
-    file.write_all(&salt_len.to_le_bytes())
-        .expect("write salt length");
-    file.write_all(&manifest_len.to_le_bytes())
-        .expect("write manifest length");
-    file.write_all(salt).expect("write salt");
-    file.write_all(encrypted_manifest)
-        .expect("write encrypted manifest");
 }
 
 struct TempDir {

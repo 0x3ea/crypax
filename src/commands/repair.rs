@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     archive::{
-        format::read_header,
+        format::read_header_with_fallback,
         manifest::{PlainManifest, decrypt_manifest},
     },
     crypto::{
@@ -19,8 +19,7 @@ use crate::{commands::verify, error::Result};
 pub fn run(archive_dir: PathBuf) -> Result<()> {
     let password = rpassword::prompt_password("Enter password")?;
 
-    let header_path = archive_dir.join("crypax.archive");
-    let archive = read_header(&header_path)?;
+    let archive = read_header_with_fallback(&archive_dir)?;
 
     let archive_key = unlock_archive_key(&password, &archive)?;
 

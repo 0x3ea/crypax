@@ -175,7 +175,7 @@ fn decrypt_archive(
     output_dir: &Path,
     password: &str,
 ) -> crypax::error::Result<()> {
-    let header = format::read_header(&archive_dir.join("crypax.archive")).expect("read header");
+    let header = format::read_header_with_fallback(archive_dir).expect("read header");
 
     let salt = KeySalt::try_from_vec(&header.salt)?;
     let params = default_kdf_params();

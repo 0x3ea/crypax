@@ -3,12 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::error::Result;
+use crate::{archive::format::read_header_with_fallback, error::Result};
 use crate::{
-    archive::{
-        format::read_header,
-        manifest::{PlainManifest, decrypt_manifest},
-    },
+    archive::manifest::{PlainManifest, decrypt_manifest},
     crypto::{
         aead::{EncryptedBlob, decrypt_chunk},
         keys::{ArchiveKey, unlock_archive_key},
@@ -38,8 +35,7 @@ impl VerifyReport {
 pub fn run(archive_dir: PathBuf) -> Result<VerifyReport> {
     let password = rpassword::prompt_password("Enter password")?;
 
-    let header_path = archive_dir.join("crypax.archive");
-    let archive = read_header(&header_path)?;
+    let archive = read_header_with_fallback(&archive_dir)?;
 
     let archive_key = unlock_archive_key(&password, &archive)?;
 
