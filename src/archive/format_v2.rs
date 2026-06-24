@@ -61,23 +61,7 @@ pub fn read_header_v2(reader: &mut impl Read) -> Result<ArchiveHeaderV2> {
 }
 
 pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveHeaderV2> {
-    let file_size = file.seek(SeekFrom::End(0))?;
-
-    if file_size < 24 {
-        return Err(anyhow::anyhow!("Invalid archive size"));
-    }
-
-    file.seek(SeekFrom::Start(file_size - 24))?;
-
-    let mut buf = [0u8; 24];
-    file.read_exact(&mut buf)?;
-
-    if buf[0..8] != *EOF_MAGIC {
-        return Err(anyhow::anyhow!("Invalid archive magic"));
-    }
-
-    let footer_offset = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let footer_blake: [u8; 8] = buf[16..24].try_into().unwrap();
+    let (footer_offset, footer_blake) = read_eof_marker(file)?;
     let mut buf = [0u8; 512];
     file.seek(SeekFrom::Start(footer_offset))?;
     file.read_exact(&mut buf)?;
@@ -95,36 +79,6 @@ pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveH
     let hash = hasher.finalize();
     if hash.as_bytes()[..8] != footer_blake {
         return Err(anyhow::anyhow!("Footer hash mismatch"));
-    }
-
-    Ok(header)
-}
-
-fn parse_header_from_buf(buf: &[u8; 512]) -> Result<ArchiveHeaderV2> {
-    let header = ArchiveHeaderV2 {
-        magic: buf[0..7].try_into().unwrap(),
-        version: buf[7],
-        archive_uuid: buf[8..24].try_into().unwrap(),
-        salt: buf[24..40].try_into().unwrap(),
-        segment_plaintext_size: u32::from_le_bytes(buf[40..44].try_into().unwrap()),
-        total_segments: u32::from_le_bytes(buf[44..48].try_into().unwrap()),
-        total_plaintext_size: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
-        rs_data_cells_per_stripe: u16::from_le_bytes(buf[56..58].try_into().unwrap()),
-        rs_parity_cells_per_segment: u16::from_le_bytes(buf[58..60].try_into().unwrap()),
-        cell_size: u32::from_le_bytes(buf[60..64].try_into().unwrap()),
-        segment_table_offset: u64::from_le_bytes(buf[64..72].try_into().unwrap()),
-        rs_parity_region_offset: u64::from_le_bytes(buf[72..80].try_into().unwrap()),
-        footer_offset: u64::from_le_bytes(buf[80..88].try_into().unwrap()),
-        encrypted_manifest_size: u32::from_le_bytes(buf[88..92].try_into().unwrap()),
-        reserved: buf[92..512].try_into().unwrap(),
-    };
-
-    if header.magic != *ARCHIVE_MAGIC {
-        return Err(anyhow::anyhow!("Invalid archive magic"));
-    }
-
-    if header.version != ARCHIVE_FORMAT_VERSION {
-        return Err(anyhow::anyhow!("Unsupported archive version"));
     }
 
     Ok(header)
@@ -158,4 +112,66 @@ pub fn read_segment_table(reader: &mut impl Read, count: usize) -> Result<Vec<Se
         entries.push(entry);
     }
     Ok(entries)
+}
+
+pub fn write_eof_marker(
+    writer: &mut impl Write,
+    footer_offset: u64,
+    footer_blake3_prefix: [u8; 8],
+) -> Result<()> {
+    writer.write_all(&EOF_MAGIC)?;
+    writer.write_all(&footer_offset.to_le_bytes())?;
+    writer.write_all(&footer_blake3_prefix)?;
+    Ok(())
+}
+
+pub fn read_eof_marker(reader: &mut (impl Read + Seek)) -> Result<(u64, [u8; 8])> {
+    let file_size = reader.seek(SeekFrom::End(0))?;
+
+    if file_size < 24 {
+        return Err(anyhow::anyhow!("Invalid archive size"));
+    }
+
+    reader.seek(SeekFrom::Start(file_size - 24))?;
+
+    let mut buf = [0u8; 24];
+    reader.read_exact(&mut buf)?;
+
+    if buf[0..8] != *EOF_MAGIC {
+        return Err(anyhow::anyhow!("Invalid archive magic"));
+    }
+
+    let footer_offset = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+    let footer_blake: [u8; 8] = buf[16..24].try_into().unwrap();
+    Ok((footer_offset, footer_blake))
+}
+
+fn parse_header_from_buf(buf: &[u8; 512]) -> Result<ArchiveHeaderV2> {
+    let header = ArchiveHeaderV2 {
+        magic: buf[0..7].try_into().unwrap(),
+        version: buf[7],
+        archive_uuid: buf[8..24].try_into().unwrap(),
+        salt: buf[24..40].try_into().unwrap(),
+        segment_plaintext_size: u32::from_le_bytes(buf[40..44].try_into().unwrap()),
+        total_segments: u32::from_le_bytes(buf[44..48].try_into().unwrap()),
+        total_plaintext_size: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
+        rs_data_cells_per_stripe: u16::from_le_bytes(buf[56..58].try_into().unwrap()),
+        rs_parity_cells_per_segment: u16::from_le_bytes(buf[58..60].try_into().unwrap()),
+        cell_size: u32::from_le_bytes(buf[60..64].try_into().unwrap()),
+        segment_table_offset: u64::from_le_bytes(buf[64..72].try_into().unwrap()),
+        rs_parity_region_offset: u64::from_le_bytes(buf[72..80].try_into().unwrap()),
+        footer_offset: u64::from_le_bytes(buf[80..88].try_into().unwrap()),
+        encrypted_manifest_size: u32::from_le_bytes(buf[88..92].try_into().unwrap()),
+        reserved: buf[92..512].try_into().unwrap(),
+    };
+
+    if header.magic != *ARCHIVE_MAGIC {
+        return Err(anyhow::anyhow!("Invalid archive magic"));
+    }
+
+    if header.version != ARCHIVE_FORMAT_VERSION {
+        return Err(anyhow::anyhow!("Unsupported archive version"));
+    }
+
+    Ok(header)
 }
