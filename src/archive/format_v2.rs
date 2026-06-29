@@ -5,6 +5,17 @@ pub const ARCHIVE_MAGIC: &[u8] = b"CRYPAX\x02";
 pub const EOF_MAGIC: &[u8] = b"CXEOF\x02\x00\x00";
 pub const ARCHIVE_FORMAT_VERSION: u8 = 2;
 
+/// Fixed on-disk size of the archive header in bytes.
+pub const HEADER_SIZE: usize = 512;
+/// On-disk size of one segment-table entry in bytes.
+pub const SEGMENT_ENTRY_SIZE: usize = 32;
+/// Length of the blake3 hash prefix stored for integrity checks
+/// (both the per-segment prefix and the footer prefix).
+pub const BLAKE3_PREFIX_LEN: usize = 8;
+/// On-disk size of the trailing EOF marker in bytes:
+/// `EOF_MAGIC` (8) + `footer_offset` (u64) + blake3 prefix (8).
+pub const EOF_MARKER_SIZE: usize = 24;
+
 pub struct ArchiveHeaderV2 {
     pub magic: [u8; 7],
     pub version: u8,
@@ -14,7 +25,7 @@ pub struct ArchiveHeaderV2 {
     pub total_segments: u32,
     pub total_plaintext_size: u64,
     pub rs_data_cells_per_stripe: u16,
-    pub rs_parity_cells_per_segment: u16,
+    pub rs_parity_cells_per_stripe: u16,
     pub cell_size: u32,
     pub segment_table_offset: u64,
     pub rs_parity_region_offset: u64,
@@ -27,12 +38,34 @@ pub struct SegmentEntry {
     pub offset: u64,
     pub ciphertext_len: u32,
     pub plaintext_len: u32,
-    pub blake3_prefix: [u8; 8],
+    pub blake3_prefix: [u8; BLAKE3_PREFIX_LEN],
     pub reserved: [u8; 8],
 }
 
+impl Default for ArchiveHeaderV2 {
+    fn default() -> Self {
+        Self {
+            magic: ARCHIVE_MAGIC.try_into().unwrap(),
+            version: ARCHIVE_FORMAT_VERSION,
+            archive_uuid: [0u8; 16],
+            salt: [0u8; 16],
+            segment_plaintext_size: 1024 * 1024,
+            total_segments: 0,
+            total_plaintext_size: 0,
+            rs_data_cells_per_stripe: 240,
+            rs_parity_cells_per_stripe: 15,
+            cell_size: 4096,
+            segment_table_offset: 0,
+            rs_parity_region_offset: 0,
+            footer_offset: 0,
+            encrypted_manifest_size: 0,
+            reserved: [0u8; 420],
+        }
+    }
+}
+
 pub fn write_header_v2(header: &ArchiveHeaderV2, writer: &mut impl Write) -> Result<()> {
-    let mut buf = [0u8; 512];
+    let mut buf = [0u8; HEADER_SIZE];
     buf[0..7].copy_from_slice(&header.magic);
     buf[7] = header.version;
     buf[8..24].copy_from_slice(&header.archive_uuid);
@@ -41,7 +74,7 @@ pub fn write_header_v2(header: &ArchiveHeaderV2, writer: &mut impl Write) -> Res
     buf[44..48].copy_from_slice(&header.total_segments.to_le_bytes());
     buf[48..56].copy_from_slice(&header.total_plaintext_size.to_le_bytes());
     buf[56..58].copy_from_slice(&header.rs_data_cells_per_stripe.to_le_bytes());
-    buf[58..60].copy_from_slice(&header.rs_parity_cells_per_segment.to_le_bytes());
+    buf[58..60].copy_from_slice(&header.rs_parity_cells_per_stripe.to_le_bytes());
     buf[60..64].copy_from_slice(&header.cell_size.to_le_bytes());
     buf[64..72].copy_from_slice(&header.segment_table_offset.to_le_bytes());
     buf[72..80].copy_from_slice(&header.rs_parity_region_offset.to_le_bytes());
@@ -54,7 +87,7 @@ pub fn write_header_v2(header: &ArchiveHeaderV2, writer: &mut impl Write) -> Res
 }
 
 pub fn read_header_v2(reader: &mut impl Read) -> Result<ArchiveHeaderV2> {
-    let mut buf = [0u8; 512];
+    let mut buf = [0u8; HEADER_SIZE];
     reader.read_exact(&mut buf)?;
 
     parse_header_from_buf(&buf)
@@ -62,14 +95,14 @@ pub fn read_header_v2(reader: &mut impl Read) -> Result<ArchiveHeaderV2> {
 
 pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveHeaderV2> {
     let (footer_offset, footer_blake) = read_eof_marker(file)?;
-    let mut buf = [0u8; 512];
+    let mut buf = [0u8; HEADER_SIZE];
     file.seek(SeekFrom::Start(footer_offset))?;
     file.read_exact(&mut buf)?;
 
     let header = parse_header_from_buf(&buf)?;
 
-    let remaining_size: usize =
-        (header.total_segments * 32 + header.encrypted_manifest_size) as usize;
+    let remaining_size: usize = (header.total_segments * SEGMENT_ENTRY_SIZE as u32
+        + header.encrypted_manifest_size) as usize;
     let mut rest = vec![0u8; remaining_size];
     file.read_exact(&mut rest)?;
 
@@ -77,7 +110,7 @@ pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveH
     hasher.update(&buf);
     hasher.update(&rest);
     let hash = hasher.finalize();
-    if hash.as_bytes()[..8] != footer_blake {
+    if hash.as_bytes()[..BLAKE3_PREFIX_LEN] != footer_blake {
         return Err(anyhow::anyhow!("Footer hash mismatch"));
     }
 
@@ -86,7 +119,7 @@ pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveH
 
 pub fn write_segment_table(entries: &[SegmentEntry], writer: &mut impl Write) -> Result<()> {
     for entry in entries {
-        let mut buf = [0u8; 32];
+        let mut buf = [0u8; SEGMENT_ENTRY_SIZE];
         buf[..8].copy_from_slice(&entry.offset.to_le_bytes());
         buf[8..12].copy_from_slice(&entry.ciphertext_len.to_le_bytes());
         buf[12..16].copy_from_slice(&entry.plaintext_len.to_le_bytes());
@@ -98,7 +131,7 @@ pub fn write_segment_table(entries: &[SegmentEntry], writer: &mut impl Write) ->
 }
 
 pub fn read_segment_table(reader: &mut impl Read, count: usize) -> Result<Vec<SegmentEntry>> {
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; SEGMENT_ENTRY_SIZE];
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         reader.read_exact(&mut buf)?;
@@ -117,24 +150,24 @@ pub fn read_segment_table(reader: &mut impl Read, count: usize) -> Result<Vec<Se
 pub fn write_eof_marker(
     writer: &mut impl Write,
     footer_offset: u64,
-    footer_blake3_prefix: [u8; 8],
+    footer_blake3_prefix: [u8; BLAKE3_PREFIX_LEN],
 ) -> Result<()> {
-    writer.write_all(&EOF_MAGIC)?;
+    writer.write_all(EOF_MAGIC)?;
     writer.write_all(&footer_offset.to_le_bytes())?;
     writer.write_all(&footer_blake3_prefix)?;
     Ok(())
 }
 
-pub fn read_eof_marker(reader: &mut (impl Read + Seek)) -> Result<(u64, [u8; 8])> {
+pub fn read_eof_marker(reader: &mut (impl Read + Seek)) -> Result<(u64, [u8; BLAKE3_PREFIX_LEN])> {
     let file_size = reader.seek(SeekFrom::End(0))?;
 
-    if file_size < 24 {
+    if file_size < EOF_MARKER_SIZE as u64 {
         return Err(anyhow::anyhow!("Invalid archive size"));
     }
 
-    reader.seek(SeekFrom::Start(file_size - 24))?;
+    reader.seek(SeekFrom::Start(file_size - EOF_MARKER_SIZE as u64))?;
 
-    let mut buf = [0u8; 24];
+    let mut buf = [0u8; EOF_MARKER_SIZE];
     reader.read_exact(&mut buf)?;
 
     if buf[0..8] != *EOF_MAGIC {
@@ -142,11 +175,11 @@ pub fn read_eof_marker(reader: &mut (impl Read + Seek)) -> Result<(u64, [u8; 8])
     }
 
     let footer_offset = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-    let footer_blake: [u8; 8] = buf[16..24].try_into().unwrap();
+    let footer_blake: [u8; BLAKE3_PREFIX_LEN] = buf[16..EOF_MARKER_SIZE].try_into().unwrap();
     Ok((footer_offset, footer_blake))
 }
 
-fn parse_header_from_buf(buf: &[u8; 512]) -> Result<ArchiveHeaderV2> {
+fn parse_header_from_buf(buf: &[u8; HEADER_SIZE]) -> Result<ArchiveHeaderV2> {
     let header = ArchiveHeaderV2 {
         magic: buf[0..7].try_into().unwrap(),
         version: buf[7],
@@ -156,13 +189,13 @@ fn parse_header_from_buf(buf: &[u8; 512]) -> Result<ArchiveHeaderV2> {
         total_segments: u32::from_le_bytes(buf[44..48].try_into().unwrap()),
         total_plaintext_size: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
         rs_data_cells_per_stripe: u16::from_le_bytes(buf[56..58].try_into().unwrap()),
-        rs_parity_cells_per_segment: u16::from_le_bytes(buf[58..60].try_into().unwrap()),
+        rs_parity_cells_per_stripe: u16::from_le_bytes(buf[58..60].try_into().unwrap()),
         cell_size: u32::from_le_bytes(buf[60..64].try_into().unwrap()),
         segment_table_offset: u64::from_le_bytes(buf[64..72].try_into().unwrap()),
         rs_parity_region_offset: u64::from_le_bytes(buf[72..80].try_into().unwrap()),
         footer_offset: u64::from_le_bytes(buf[80..88].try_into().unwrap()),
         encrypted_manifest_size: u32::from_le_bytes(buf[88..92].try_into().unwrap()),
-        reserved: buf[92..512].try_into().unwrap(),
+        reserved: buf[92..HEADER_SIZE].try_into().unwrap(),
     };
 
     if header.magic != *ARCHIVE_MAGIC {
