@@ -8,7 +8,7 @@ use crate::chunks::erasure::plan_erasure;
 use crate::chunks::erasure::{ErasurePlan, encode_recovery_shards};
 use crate::chunks::split::split_into_data_shards;
 use crate::chunks::split::{ChunkPlan, plan_chunks};
-use crate::crypto::aead::{EncryptedBlob, encrypt_blob, encrypt_chunk};
+use crate::crypto::aead::{EncryptedBlob, encrypt_blob, encrypt_segment};
 use crate::crypto::keys::derive_archive_key;
 use crate::crypto::keys::generate_salt;
 use crate::crypto::keys::{KeySalt, default_kdf_params};
@@ -58,7 +58,7 @@ pub fn run(source: PathBuf, output_dir: PathBuf) -> Result<()> {
     let archive_id = uuid.as_bytes();
     let mut encrypted_shards = Vec::new();
     for (i, shard) in data_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             i as u64,
@@ -70,7 +70,7 @@ pub fn run(source: PathBuf, output_dir: PathBuf) -> Result<()> {
 
     let offset = data_shards.len();
     for (i, shard) in recovery_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             (offset + i) as u64,

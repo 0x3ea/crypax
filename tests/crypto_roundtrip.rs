@@ -1,4 +1,4 @@
-use crypax::crypto::aead::{decrypt_blob, decrypt_chunk, encrypt_blob, encrypt_chunk};
+use crypax::crypto::aead::{decrypt_blob, decrypt_segment, encrypt_blob, encrypt_segment};
 use crypax::crypto::keys::{
     ARCHIVE_KEY_LEN, ArchiveKey, KEY_SALT_LEN, KdfParams, KeySalt, derive_archive_key,
     generate_salt,
@@ -130,8 +130,8 @@ fn encrypts_and_decrypts_chunk_roundtrip() {
     let data = b"chunk payload data here";
     let archive_id = b"archive-001";
 
-    let blob = encrypt_chunk(&key, data, 0, archive_id, 1).expect("encrypt chunk");
-    let decrypted = decrypt_chunk(&key, &blob, 0, archive_id, 1).expect("decrypt chunk");
+    let blob = encrypt_segment(&key, data, 0, archive_id, 1).expect("encrypt chunk");
+    let decrypted = decrypt_segment(&key, &blob, 0, archive_id, 1).expect("decrypt chunk");
 
     assert_eq!(decrypted, data);
 }
@@ -139,27 +139,27 @@ fn encrypts_and_decrypts_chunk_roundtrip() {
 #[test]
 fn decrypt_chunk_rejects_wrong_chunk_index() {
     let key = test_archive_key();
-    let blob = encrypt_chunk(&key, b"payload", 5, b"arc", 1).expect("encrypt chunk");
+    let blob = encrypt_segment(&key, b"payload", 5, b"arc", 1).expect("encrypt chunk");
 
-    let result = decrypt_chunk(&key, &blob, 6, b"arc", 1);
+    let result = decrypt_segment(&key, &blob, 6, b"arc", 1);
     assert!(result.is_err());
 }
 
 #[test]
 fn decrypt_chunk_rejects_wrong_archive_id() {
     let key = test_archive_key();
-    let blob = encrypt_chunk(&key, b"payload", 0, b"archive-A", 1).expect("encrypt chunk");
+    let blob = encrypt_segment(&key, b"payload", 0, b"archive-A", 1).expect("encrypt chunk");
 
-    let result = decrypt_chunk(&key, &blob, 0, b"archive-B", 1);
+    let result = decrypt_segment(&key, &blob, 0, b"archive-B", 1);
     assert!(result.is_err());
 }
 
 #[test]
 fn decrypt_chunk_rejects_wrong_format_version() {
     let key = test_archive_key();
-    let blob = encrypt_chunk(&key, b"payload", 0, b"arc", 1).expect("encrypt chunk");
+    let blob = encrypt_segment(&key, b"payload", 0, b"arc", 1).expect("encrypt chunk");
 
-    let result = decrypt_chunk(&key, &blob, 0, b"arc", 2);
+    let result = decrypt_segment(&key, &blob, 0, b"arc", 2);
     assert!(result.is_err());
 }
 

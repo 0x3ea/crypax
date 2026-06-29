@@ -9,7 +9,7 @@ use crate::{
         manifest::{PlainManifest, decrypt_manifest},
     },
     crypto::{
-        aead::{EncryptedBlob, decrypt_chunk, encrypt_chunk},
+        aead::{EncryptedBlob, decrypt_segment, encrypt_segment},
         keys::{ArchiveKey, unlock_archive_key},
     },
     error::corrupt_archive,
@@ -85,7 +85,7 @@ fn collect_available_shards(
                 nonce,
                 ciphertext: raw[24..].to_vec(),
             };
-            decrypt_chunk(key, &blob, i as u64, archive_id, manifest.format_version).ok()
+            decrypt_segment(key, &blob, i as u64, archive_id, manifest.format_version).ok()
         })();
 
         shards.push(shard);
@@ -122,7 +122,7 @@ fn write_recovered_shards(
         let plaintext = shards[i].as_ref().expect("shard should be reconstructed");
         let chunk_entry = &manifest.chunks[i];
 
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             key,
             plaintext,
             i as u64,

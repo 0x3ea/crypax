@@ -7,7 +7,7 @@ use crate::{archive::format::read_header_with_fallback, error::Result};
 use crate::{
     archive::manifest::{PlainManifest, decrypt_manifest},
     crypto::{
-        aead::{EncryptedBlob, decrypt_chunk},
+        aead::{EncryptedBlob, decrypt_segment},
         keys::{ArchiveKey, unlock_archive_key},
     },
     error::corrupt_archive,
@@ -88,7 +88,7 @@ pub(crate) fn verify_archive(
             ciphertext: raw[24..].to_vec(),
         };
 
-        if decrypt_chunk(key, &blob, i as u64, archive_id, manifest.format_version).is_err() {
+        if decrypt_segment(key, &blob, i as u64, archive_id, manifest.format_version).is_err() {
             report
                 .findings
                 .push(VerifyFinding::CorruptShard { index: i });

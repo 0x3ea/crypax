@@ -12,7 +12,7 @@ use crypax::archive::manifest::{
 };
 use crypax::chunks::erasure::{encode_recovery_shards, plan_erasure};
 use crypax::chunks::split::{plan_chunks, split_into_data_shards};
-use crypax::crypto::aead::{EncryptedBlob, decrypt_chunk, encrypt_blob, encrypt_chunk};
+use crypax::crypto::aead::{EncryptedBlob, decrypt_segment, encrypt_blob, encrypt_segment};
 use crypax::crypto::keys::{default_kdf_params, derive_archive_key, generate_salt};
 use crypax::fs::pack::pack_source;
 use crypax::fs::scan::{EntryKind, scan_source};
@@ -80,7 +80,7 @@ fn create_test_archive(temp: &TempDir, password: &str) -> ArchiveFixture {
 
     let mut encrypted_shards = Vec::new();
     for (i, shard) in data_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             i as u64,
@@ -92,7 +92,7 @@ fn create_test_archive(temp: &TempDir, password: &str) -> ArchiveFixture {
     }
     let offset = data_shards.len();
     for (i, shard) in recovery_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             (offset + i) as u64,
@@ -212,7 +212,7 @@ fn verify_archive(fixture: &ArchiveFixture) -> Vec<ShardIssue> {
             ciphertext: raw[24..].to_vec(),
         };
 
-        if decrypt_chunk(
+        if decrypt_segment(
             &fixture.key,
             &blob,
             i as u64,

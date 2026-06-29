@@ -50,32 +50,32 @@ pub fn decrypt_blob(key: &ArchiveKey, blob: &EncryptedBlob, aad: &[u8]) -> Resul
         .map_err(|_| corrupt_archive("authentication failed"))
 }
 
-pub fn encrypt_chunk(
+pub fn encrypt_segment(
     key: &ArchiveKey,
-    chunk_data: &[u8],
-    chunk_index: u64,
+    segment_data: &[u8],
+    segment_index: u64,
     archive_id: &[u8],
     format_version: u16,
 ) -> Result<EncryptedBlob> {
-    let aad = build_chunk_aad(archive_id, format_version, chunk_index);
-    encrypt_blob(key, chunk_data, &aad)
+    let aad = build_segment_aad(archive_id, format_version, segment_index);
+    encrypt_blob(key, segment_data, &aad)
 }
 
-pub fn decrypt_chunk(
+pub fn decrypt_segment(
     key: &ArchiveKey,
     blob: &EncryptedBlob,
-    chunk_index: u64,
+    segment_index: u64,
     archive_id: &[u8],
     format_version: u16,
 ) -> Result<Vec<u8>> {
-    let aad = build_chunk_aad(archive_id, format_version, chunk_index);
+    let aad = build_segment_aad(archive_id, format_version, segment_index);
     decrypt_blob(key, blob, &aad)
 }
 
-fn build_chunk_aad(archive_id: &[u8], format_version: u16, chunk_index: u64) -> Vec<u8> {
+fn build_segment_aad(archive_id: &[u8], format_version: u16, segment_index: u64) -> Vec<u8> {
     let mut aad = Vec::with_capacity(archive_id.len() + 2 + 8);
     aad.extend_from_slice(archive_id);
     aad.extend_from_slice(&format_version.to_le_bytes());
-    aad.extend_from_slice(&chunk_index.to_le_bytes());
+    aad.extend_from_slice(&segment_index.to_le_bytes());
     aad
 }

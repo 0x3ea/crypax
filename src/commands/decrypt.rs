@@ -6,7 +6,7 @@ use crate::{
     archive::manifest::{PlainManifest, decrypt_manifest},
     chunks::split::{DataShard, join_data_shards},
     crypto::{
-        aead::{EncryptedBlob, decrypt_chunk},
+        aead::{EncryptedBlob, decrypt_segment},
         keys::{ArchiveKey, unlock_archive_key},
     },
     error::corrupt_archive,
@@ -57,7 +57,7 @@ fn decrypt_data_shards(
         let ciphertext = raw[24..].to_vec();
 
         let blob = EncryptedBlob { nonce, ciphertext };
-        let plaintext = decrypt_chunk(key, &blob, i as u64, archive_id, manifest.format_version)?;
+        let plaintext = decrypt_segment(key, &blob, i as u64, archive_id, manifest.format_version)?;
         shards.push(DataShard {
             index: i,
             data: plaintext,

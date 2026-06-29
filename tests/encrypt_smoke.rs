@@ -12,7 +12,7 @@ use crypax::archive::manifest::{
 };
 use crypax::chunks::erasure::{encode_recovery_shards, plan_erasure};
 use crypax::chunks::split::{plan_chunks, split_into_data_shards};
-use crypax::crypto::aead::{encrypt_blob, encrypt_chunk};
+use crypax::crypto::aead::{encrypt_blob, encrypt_segment};
 use crypax::crypto::keys::{default_kdf_params, derive_archive_key, generate_salt};
 use crypax::fs::pack::{compute_content_fingerprint, pack_source};
 use crypax::fs::scan::{EntryKind, scan_source};
@@ -46,7 +46,7 @@ fn encrypts_single_file_to_archive_directory() {
 
     let mut encrypted_shards = Vec::new();
     for (i, shard) in data_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             i as u64,
@@ -58,7 +58,7 @@ fn encrypts_single_file_to_archive_directory() {
     }
     let offset = data_shards.len();
     for (i, shard) in recovery_shards.iter().enumerate() {
-        let blob = encrypt_chunk(
+        let blob = encrypt_segment(
             &key,
             &shard.data,
             (offset + i) as u64,
