@@ -4,6 +4,9 @@ pub struct PackedSource {
     pub bytes: Vec<u8>,
 }
 
+pub const PACK_MAGIC: &[u8] = b"CRYPAXPACK\0";
+pub const PACK_FORMAT_VERSION: u16 = 1;
+
 pub fn compute_content_fingerprint(tree: &SourceTree) -> Result<String> {
     let mut entries = tree.entries.iter().collect::<Vec<_>>();
 
@@ -48,6 +51,25 @@ pub fn pack_source(tree: &SourceTree) -> Result<PackedSource> {
         append_entry(&mut bytes, tree, entry)?;
     }
     Ok(PackedSource { bytes })
+}
+
+pub fn serialize_entry_framing(entry: &SourceEntry) -> Result<Vec<u8>> {
+    let mut f = Vec::new();
+    match entry.kind {
+        EntryKind::File => {
+            write_u8(&mut f, 1);
+            write_str(&mut f, &entry.relative_path)?;
+            write_u64(&mut f, entry.size);
+            write_u64(&mut f, entry.size);
+        }
+        EntryKind::Directory => {
+            write_u8(&mut f, 2);
+            write_str(&mut f, &entry.relative_path)?;
+            write_u64(&mut f, 0);
+            write_u64(&mut f, 0);
+        }
+    }
+    Ok(f)
 }
 
 fn update_bytes(hasher: &mut blake3::Hasher, bytes: &[u8]) {
