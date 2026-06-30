@@ -30,8 +30,7 @@ pub struct ArchiveHeaderV2 {
     pub segment_table_offset: u64,
     pub rs_parity_region_offset: u64,
     pub footer_offset: u64,
-    pub encrypted_manifest_size: u32,
-    pub reserved: [u8; 420],
+    pub reserved: [u8; 424],
 }
 
 pub struct SegmentEntry {
@@ -58,8 +57,7 @@ impl Default for ArchiveHeaderV2 {
             segment_table_offset: 0,
             rs_parity_region_offset: 0,
             footer_offset: 0,
-            encrypted_manifest_size: 0,
-            reserved: [0u8; 420],
+            reserved: [0u8; 424],
         }
     }
 }
@@ -79,8 +77,7 @@ pub fn write_header_v2(header: &ArchiveHeaderV2, writer: &mut impl Write) -> Res
     buf[64..72].copy_from_slice(&header.segment_table_offset.to_le_bytes());
     buf[72..80].copy_from_slice(&header.rs_parity_region_offset.to_le_bytes());
     buf[80..88].copy_from_slice(&header.footer_offset.to_le_bytes());
-    buf[88..92].copy_from_slice(&header.encrypted_manifest_size.to_le_bytes());
-    buf[92..].copy_from_slice(&header.reserved);
+    buf[88..].copy_from_slice(&header.reserved);
 
     writer.write_all(&buf)?;
     Ok(())
@@ -101,8 +98,7 @@ pub fn read_header_from_footer(file: &mut (impl Read + Seek)) -> Result<ArchiveH
 
     let header = parse_header_from_buf(&buf)?;
 
-    let remaining_size: usize = (header.total_segments * SEGMENT_ENTRY_SIZE as u32
-        + header.encrypted_manifest_size) as usize;
+    let remaining_size: usize = (header.total_segments * SEGMENT_ENTRY_SIZE as u32) as usize;
     let mut rest = vec![0u8; remaining_size];
     file.read_exact(&mut rest)?;
 
@@ -194,8 +190,7 @@ fn parse_header_from_buf(buf: &[u8; HEADER_SIZE]) -> Result<ArchiveHeaderV2> {
         segment_table_offset: u64::from_le_bytes(buf[64..72].try_into().unwrap()),
         rs_parity_region_offset: u64::from_le_bytes(buf[72..80].try_into().unwrap()),
         footer_offset: u64::from_le_bytes(buf[80..88].try_into().unwrap()),
-        encrypted_manifest_size: u32::from_le_bytes(buf[88..92].try_into().unwrap()),
-        reserved: buf[92..HEADER_SIZE].try_into().unwrap(),
+        reserved: buf[88..HEADER_SIZE].try_into().unwrap(),
     };
 
     if header.magic != *ARCHIVE_MAGIC {

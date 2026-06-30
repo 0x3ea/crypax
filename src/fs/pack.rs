@@ -58,12 +58,14 @@ pub fn serialize_entry_framing(entry: &SourceEntry) -> Result<Vec<u8>> {
     match entry.kind {
         EntryKind::File => {
             write_u8(&mut f, 1);
+            write_u8(&mut f, entry.permissions.readonly as u8);
             write_str(&mut f, &entry.relative_path)?;
             write_u64(&mut f, entry.size);
             write_u64(&mut f, entry.size);
         }
         EntryKind::Directory => {
             write_u8(&mut f, 2);
+            write_u8(&mut f, 0);
             write_str(&mut f, &entry.relative_path)?;
             write_u64(&mut f, 0);
             write_u64(&mut f, 0);

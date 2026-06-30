@@ -22,7 +22,12 @@ pub struct PackStream<'a> {
 }
 
 impl<'a> PackStream<'a> {
-    pub fn new(tree: &'a SourceTree, segment_size: usize) -> Result<Self> {
+    pub fn new(
+        tree: &'a SourceTree,
+        segment_size: usize,
+        created_at: i64,
+        root_kind: u8,
+    ) -> Result<Self> {
         if segment_size == 0 || segment_size > u32::MAX as usize {
             return Err(invalid_input("invalid segment size"));
         }
@@ -31,6 +36,8 @@ impl<'a> PackStream<'a> {
         preamble.extend_from_slice(PACK_MAGIC);
         preamble.extend_from_slice(&PACK_FORMAT_VERSION.to_le_bytes());
         preamble.extend_from_slice(&(tree.entries.len() as u32).to_le_bytes());
+        preamble.extend_from_slice(&created_at.to_le_bytes());
+        preamble.push(root_kind);
 
         Ok(Self {
             tree,

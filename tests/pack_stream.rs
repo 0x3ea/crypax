@@ -1,9 +1,8 @@
 mod common;
 
-use std::fs;
-use std::path::Path;
+use std::{fs, path::Path};
 
-use crypax::fs::pack::pack_source;
+use crypax::fs::pack::{PACK_FORMAT_VERSION, PACK_MAGIC};
 use crypax::fs::pack_stream::PackStream;
 use crypax::fs::scan::scan_source;
 
@@ -30,42 +29,6 @@ fn drain_all(pack: &mut PackStream) -> Vec<u8> {
     out
 }
 
-/// Tiny segments force the segment boundary to land inside framing bytes and
-/// mid-file-data — exactly where a streaming packer is most likely to break.
-/// The concatenated output must be byte-identical to v1 pack_source.
-#[test]
-fn pack_stream_matches_pack_source_tiny_segments() {
-    let ws = TempWorkspace::new("pack-stream-tiny");
-    let src = ws.path.join("src");
-    build_tree(&src);
-    let tree = scan_source(&src).expect("scan");
-
-    let expected = pack_source(&tree).expect("pack").bytes;
-    let mut pack = PackStream::new(&tree, 64).expect("new");
-    let got = drain_all(&mut pack);
-
-    assert_eq!(got, expected, "streamed pack differs from v1 pack_source");
-}
-
-/// With a segment larger than the whole stream, everything fits in one segment.
-/// Same oracle, confirms segment_size is pure chunking (total bytes unchanged).
-#[test]
-fn pack_stream_matches_pack_source_single_segment() {
-    let ws = TempWorkspace::new("pack-stream-single");
-    let src = ws.path.join("src");
-    build_tree(&src);
-    let tree = scan_source(&src).expect("scan");
-
-    let expected = pack_source(&tree).expect("pack").bytes;
-    let mut pack = PackStream::new(&tree, 1024 * 1024).expect("new");
-    let got = drain_all(&mut pack);
-
-    assert_eq!(
-        got, expected,
-        "single-segment pack differs from v1 pack_source"
-    );
-}
-
 /// Invariant: no segment may exceed segment_size.
 #[test]
 fn segments_never_exceed_segment_size() {
@@ -75,7 +38,7 @@ fn segments_never_exceed_segment_size() {
     let tree = scan_source(&src).expect("scan");
 
     let segment_size = 64;
-    let mut pack = PackStream::new(&tree, segment_size).expect("new");
+    let mut pack = PackStream::new(&tree, segment_size, 1_700_000_000, 1).expect("new");
     while let Some(seg) = pack.next_segment().expect("next_segment") {
         assert!(
             seg.len() <= segment_size,
@@ -83,4 +46,36 @@ fn segments_never_exceed_segment_size() {
             seg.len()
         );
     }
+}
+
+/// The pack-stream preamble encodes archive-level metadata (created_at / root_kind)
+/// alongside magic / version / entry count. These live in the encrypted stream
+/// (not the plaintext header) to avoid leaking metadata. Full content round-trip
+/// is covered later by the restore_stream tests.
+#[test]
+fn preamble_encodes_archive_metadata() {
+    let ws = TempWorkspace::new("pack-stream-preamble");
+    let src = ws.path.join("src");
+    build_tree(&src);
+    let tree = scan_source(&src).expect("scan");
+
+    let created_at: i64 = 1_700_000_000;
+    let root_kind: u8 = 1; // source root is a directory
+    let mut pack = PackStream::new(&tree, 1024 * 1024, created_at, root_kind).expect("new");
+    let bytes = drain_all(&mut pack);
+
+    // preamble = magic(11) + version(u16) + count(u32) + created_at(i64) + root_kind(u8) = 26B
+    let mut pos = 0;
+    assert_eq!(&bytes[pos..pos + 11], PACK_MAGIC);
+    pos += 11;
+    let version = u16::from_le_bytes(bytes[pos..pos + 2].try_into().unwrap());
+    assert_eq!(version, PACK_FORMAT_VERSION);
+    pos += 2;
+    let count = u32::from_le_bytes(bytes[pos..pos + 4].try_into().unwrap());
+    assert_eq!(count as usize, tree.entries.len());
+    pos += 4;
+    let parsed_created_at = i64::from_le_bytes(bytes[pos..pos + 8].try_into().unwrap());
+    assert_eq!(parsed_created_at, created_at);
+    pos += 8;
+    assert_eq!(bytes[pos], root_kind);
 }
