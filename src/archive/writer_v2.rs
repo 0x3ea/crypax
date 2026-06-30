@@ -26,6 +26,7 @@ pub struct ArchiveWriterV2<W: Read + Write + Seek> {
 
 impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
     pub fn new(mut writer: W, salt: [u8; 16], key: [u8; 32]) -> Result<Self> {
+        // Step 1: reserve 512B header (zeroed; real header written back at finalize).
         let buf = vec![0u8; HEADER_SIZE];
         writer.write_all(&buf)?;
         let mut header = ArchiveHeaderV2::default();
@@ -41,6 +42,7 @@ impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
     }
 
     pub fn write_segment(&mut self, plaintext: &[u8]) -> Result<()> {
+        // Step 2: AEAD-encrypt one segment and append it to the data region.
         let segment_index = self.header.total_segments as u64;
         self.header.total_segments += 1;
         self.header.total_plaintext_size += plaintext.len() as u64;
@@ -76,25 +78,25 @@ impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
     }
 
     pub fn finalize(mut self, manifest_ciphertext: &[u8]) -> Result<()> {
-        // write segment table
+        // Step 3: append segment table.
         self.header.segment_table_offset = self.current_offset;
         write_segment_table(&self.entries, &mut self.writer)?;
         self.current_offset += (self.entries.len() * SEGMENT_ENTRY_SIZE) as u64;
 
-        // write encrypted manifest
+        // Step 4: append encrypted manifest.
         self.writer.write_all(manifest_ciphertext)?;
         self.current_offset += manifest_ciphertext.len() as u64;
         self.header.encrypted_manifest_size = u32::try_from(manifest_ciphertext.len())
             .map_err(|_| invalid_input("manifest exceeds 4 GiB limit"))?;
 
-        // read data region，calculate rs parity by stripe and write
+        // Step 5: append RS parity region (re-reads the data region).
         self.header.rs_parity_region_offset = self.current_offset;
         self.write_rs_parity()?;
 
-        // write footer（header + segment table + manifest copy）+ EOF marker
+        // Step 6: append footer copy + EOF marker.
         self.write_footer(manifest_ciphertext)?;
 
-        // 7. Seek offset 0，write header（512B）
+        // Step 7: seek to 0 and write the real 512B header.
         self.writer.seek(SeekFrom::Start(0))?;
         write_header_v2(&self.header, &mut self.writer)?;
         Ok(())
