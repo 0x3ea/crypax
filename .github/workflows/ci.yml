@@ -1,6 +1,6 @@
 # Crypax 持续集成工作流。
 #
-# 在每次 push 到 main 或 PR 时强制跑：
+# 在每次 push 到 main/v2 或 PR 时强制跑：
 #   - cargo fmt --check        代码格式（平台无关，只跑 ubuntu）
 #   - cargo clippy -D warnings 零警告静态检查（平台无关，只跑 ubuntu）
 #   - cargo test               三平台矩阵(ubuntu/windows/macos)，验证跨平台行为
@@ -11,7 +11,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2]
   pull_request:
 
 concurrency:
