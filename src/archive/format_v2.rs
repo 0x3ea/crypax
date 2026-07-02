@@ -35,7 +35,7 @@ pub struct ArchiveHeaderV2 {
 
 pub struct SegmentEntry {
     pub offset: u64,
-    pub ciphertext_len: u32,
+    pub stored_len: u32,
     pub plaintext_len: u32,
     pub blake3_prefix: [u8; BLAKE3_PREFIX_LEN],
     pub reserved: [u8; 8],
@@ -117,7 +117,7 @@ pub fn write_segment_table(entries: &[SegmentEntry], writer: &mut impl Write) ->
     for entry in entries {
         let mut buf = [0u8; SEGMENT_ENTRY_SIZE];
         buf[..8].copy_from_slice(&entry.offset.to_le_bytes());
-        buf[8..12].copy_from_slice(&entry.ciphertext_len.to_le_bytes());
+        buf[8..12].copy_from_slice(&entry.stored_len.to_le_bytes());
         buf[12..16].copy_from_slice(&entry.plaintext_len.to_le_bytes());
         buf[16..24].copy_from_slice(&entry.blake3_prefix);
         buf[24..32].copy_from_slice(&entry.reserved);
@@ -133,7 +133,7 @@ pub fn read_segment_table(reader: &mut impl Read, count: usize) -> Result<Vec<Se
         reader.read_exact(&mut buf)?;
         let entry = SegmentEntry {
             offset: u64::from_le_bytes(buf[0..8].try_into().unwrap()),
-            ciphertext_len: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
+            stored_len: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
             plaintext_len: u32::from_le_bytes(buf[12..16].try_into().unwrap()),
             blake3_prefix: buf[16..24].try_into().unwrap(),
             reserved: buf[24..32].try_into().unwrap(),

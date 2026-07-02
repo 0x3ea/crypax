@@ -56,12 +56,12 @@ impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
 
         let plaintext_len = u32::try_from(plaintext.len())
             .map_err(|_| invalid_input("segment exceeds 4 GiB limit"))?;
-        let ciphertext_len = u32::try_from(segment.ciphertext.len() + segment.nonce.len())
+        let stored_len = u32::try_from(segment.ciphertext.len() + segment.nonce.len())
             .map_err(|_| invalid_input("segment ciphertext exceeds 4 GiB limit"))?;
 
         let entry = SegmentEntry {
             offset: self.current_offset,
-            ciphertext_len,
+            stored_len,
             plaintext_len,
             blake3_prefix: blake3::hash(plaintext).as_bytes()[..BLAKE3_PREFIX_LEN]
                 .try_into()
@@ -70,9 +70,9 @@ impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
         };
         self.entries.push(entry);
 
-        self.current_offset += ciphertext_len as u64;
-        self.writer.write_all(&segment.ciphertext)?;
+        self.current_offset += stored_len as u64;
         self.writer.write_all(&segment.nonce)?;
+        self.writer.write_all(&segment.ciphertext)?;
 
         Ok(())
     }
@@ -83,14 +83,14 @@ impl<W: Read + Write + Seek> ArchiveWriterV2<W> {
         write_segment_table(&self.entries, &mut self.writer)?;
         self.current_offset += (self.entries.len() * SEGMENT_ENTRY_SIZE) as u64;
 
-        // Step 5: append RS parity region (re-reads the data region).
+        // Step 4: append RS parity region (re-reads the data region).
         self.header.rs_parity_region_offset = self.current_offset;
         self.write_rs_parity()?;
 
-        // Step 6: append footer copy + EOF marker.
+        // Step 5: append footer copy + EOF marker.
         self.write_footer()?;
 
-        // Step 7: seek to 0 and write the real 512B header.
+        // Step 6: seek to 0 and write the real 512B header.
         self.writer.seek(SeekFrom::Start(0))?;
         write_header_v2(&self.header, &mut self.writer)?;
         Ok(())
