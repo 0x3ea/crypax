@@ -111,7 +111,7 @@ impl RestoreStream {
                     if !self.fill_fixed(8, chunk, &mut i) {
                         return Ok(());
                     }
-                    self.cur_size = u64::from_le_bytes(self.pending[..8].try_into().unwrap());
+                    self.cur_size = self.read_u64_le();
                     self.pending.clear();
                     self.state = State::DataLen;
                 }
@@ -119,7 +119,7 @@ impl RestoreStream {
                     if !self.fill_fixed(8, chunk, &mut i) {
                         return Ok(());
                     }
-                    self.cur_data_len = u64::from_le_bytes(self.pending[..8].try_into().unwrap());
+                    self.cur_data_len = self.read_u64_le();
                     self.pending.clear();
 
                     self.open_target()?;
@@ -199,13 +199,29 @@ impl RestoreStream {
         Some(*b)
     }
 
+    /// Read a little-endian u64 from `pending`.
+    /// The caller must have called `fill_fixed(8, ..)` first, so the slice is
+    /// exactly 8 bytes and `try_into` cannot fail; the `expect` documents that
+    /// invariant and surfaces a clear panic message if it ever breaks.
+    fn read_u64_le(&self) -> u64 {
+        u64::from_le_bytes(
+            self.pending[..8]
+                .try_into()
+                .expect("fill_fixed guarantees 8 bytes"),
+        )
+    }
+
     fn validate_preamble(&self) -> Result<()> {
         let magic = &self.pending[..11];
         if magic != PACK_MAGIC {
             return Err(invalid_input("invalid magic"));
         }
 
-        let version = u16::from_le_bytes(self.pending[11..13].try_into().unwrap());
+        let version = u16::from_le_bytes(
+            self.pending[11..13]
+                .try_into()
+                .expect("preamble[11..13] is 2 bytes"),
+        );
         if version != PACK_FORMAT_VERSION {
             return Err(invalid_input("invalid version"));
         }
@@ -213,7 +229,7 @@ impl RestoreStream {
     }
 
     fn read_unsafe_path(&self) -> Result<u64> {
-        let path_len = u64::from_le_bytes(self.pending[..8].try_into().unwrap());
+        let path_len = self.read_u64_le();
         if path_len > MAX_PATH_LEN {
             return Err(invalid_input("path too long"));
         }
